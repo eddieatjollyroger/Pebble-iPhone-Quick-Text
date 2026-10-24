@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <title>Quick Text Setup</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        :root, :root[data-theme="dark"] {
+            --bg: #000000; --fg: #00ff55; --dim: #00a83a; --line: #00a83a;
+            --btn-bg: #00ff55; --btn-fg: #000000; --btn-hover-bg: #000000; --btn-hover-fg: #00ff55;
+        }
+        :root[data-theme="light"] {
+            --bg: #ffffff; --fg: #000000; --dim: #555555; --line: #555555;
+            --btn-bg: #000000; --btn-fg: #ffffff; --btn-hover-bg: #ffffff; --btn-hover-fg: #000000;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 20px; background: var(--bg); color: var(--fg);
+            font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 15px; line-height: 1.4;
+        }
+        .wrap { max-width: 520px; margin: 0 auto; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+        h1 { font-size: 18px; margin: 0; font-weight: 700; }
+        .cursor { animation: blink 1s steps(1) infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+        @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+        .divider { border: 0; border-top: 1px dashed var(--line); margin: 0 0 16px; }
+        .card { padding: 20px; border: 1px dashed var(--line); margin-bottom: 16px; }
+        h2 { font-size: 14px; margin: 0 0 14px; color: var(--dim); font-weight: 600; }
+        h2 .prompt { color: var(--fg); }
+        .item { margin-bottom: 16px; }
+        .item:last-child { margin-bottom: 0; }
+        label.field { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; color: var(--dim); }
+        .note { color: var(--dim); font-size: 13px; margin: 6px 0 0; }
+
+        input[type="text"], input[type="url"] {
+            width: 100%; padding: 12px; background: var(--bg); color: var(--fg);
+            border: 1px solid var(--line); border-radius: 0; font-family: inherit;
+            font-size: 16px; caret-color: var(--fg);
+        }
+        input::placeholder { color: var(--dim); opacity: 0.7; }
+        input:focus, button:focus-visible, summary:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+
+        .row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 10px; }
+        .row .pair { flex: 1; display: grid; gap: 8px; min-width: 0; }
+        .row .remove { flex: 0 0 auto; width: 44px; }
+
+        button { font-family: inherit; cursor: pointer; border-radius: 0; }
+        .small-btn {
+            background: transparent; color: var(--dim); border: 1px solid var(--line);
+            padding: 8px 12px; font-size: 14px; white-space: nowrap;
+        }
+        .small-btn:hover { color: var(--fg); border-color: var(--fg); }
+        .full { width: 100%; }
+        #save_btn {
+            width: 100%; padding: 14px; background: var(--btn-bg); color: var(--btn-fg);
+            border: 1px solid var(--btn-bg); font-weight: 700; font-size: 16px;
+            transition: background 0.2s, color 0.2s;
+        }
+        #save_btn:hover { background: var(--btn-hover-bg); color: var(--btn-hover-fg); }
+
+        details { margin-bottom: 16px; border: 1px dashed var(--line); padding: 12px 20px; }
+        summary { cursor: pointer; color: var(--dim); font-weight: 600; }
+        details[open] summary { margin-bottom: 10px; }
+        ol { margin: 0; padding-left: 20px; }
+        li { margin-bottom: 6px; }
+        code { color: var(--fg); }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="topbar">
+            <h1># Quick Text Setup<span class="cursor">_</span></h1>
+            <button id="theme_btn" class="small-btn" type="button" aria-pressed="false">theme: dark</button>
+        </div>
+        <hr class="divider">
+
+        <details>
+            <summary>iPhone setup (one time)</summary>
+            <ol>
+                <li>Update to iOS 27. Allow notifications for the Home Assistant app.</li>
+                <li>Open Shortcuts, then Automation, then add a new automation and choose <code>Notification</code>.</li>
+                <li>App: <b>Home Assistant</b>. Filter: title contains your trigger word (default <code>PEBBLE_TEXT</code>).</li>
+                <li>Set it to run immediately, not "Ask Before Running".</li>
+                <li>Add these actions: <code>Split Text</code> on the notification's message with the custom separator <code>||</code>; <code>Get Item from List</code> (first item) as the recipient; <code>Get Item from List</code> (last item) as the text; <code>Send Message</code> with that text to that recipient.</li>
+                <li>Send yourself a test from the watch.</li>
+            </ol>
+            <p class="note">Contacts below are phone numbers or Apple ID emails. If it doesn't fire, the Home Assistant app's notifications may need to be set to show on the Lock Screen or Notification Center.</p>
+        </details>
+
+        <div class="card">
+            <h2><span class="prompt">$ </span>home assistant</h2>
+            <div class="item">
+                <label class="field" for="ha_url">Home Assistant URL</label>
+                <input id="ha_url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://your-ha.duckdns.org:8123">
+            </div>
+            <div class="item">
+                <label class="field" for="ha_token">Long-Lived Access Token</label>
+                <input id="ha_token" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste long token here...">
+            </div>
+            <div class="item">
+                <label class="field" for="notify_service">iPhone notify service (optional)</label>
+                <input id="notify_service" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="mobile_app_your_iphone">
+                <p class="note">Found automatically if you have one phone with the Home Assistant app.</p>
+            </div>
+            <div class="item">
+                <label class="field" for="trigger">Trigger word</label>
+                <input id="trigger" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="PEBBLE_TEXT">
+                <p class="note">The iPhone automation looks for this in the notification title.</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2><span class="prompt">$ </span>contacts (up to 8)</h2>
+            <div id="contacts"></div>
+            <button id="add_contact" class="small-btn full" type="button">+ add contact</button>
+            <p class="note">"Number or email" is where the text goes: a phone number like +351912345678, or the Apple ID email for iMessage.</p>
+        </div>
+
+        <div class="card">
+            <h2><span class="prompt">$ </span>messages (up to 12)</h2>
+            <div id="messages"></div>
+            <button id="add_message" class="small-btn full" type="button">+ add message</button>
+            <p class="note">The watch can't show emoji, so it hides them in its list, but they're still sent in the text. You can also dictate a message on the watch.</p>
+        </div>
+
+        <button id="save_btn" type="button">Save Settings</button>
+    </div>
+
+    <script>
+    var MAX_CONTACTS = 8, MAX_MESSAGES = 12;
+    var DEFAULTS = { trigger: 'PEBBLE_TEXT', notify_service: '', contacts: [],
+        messages: ['On my way', 'Running late', 'Call you back soon', 'OK', 'Thanks!'] };
+
+    function getQueryParam(variable) {
+        var vars = window.location.search.substring(1).split('&');
+        for (var i = 0; i < vars.length; i++) {
+            var pair = vars[i].split('=');
+            if (pair[0] === variable && pair[1] !== undefined) return decodeURIComponent(pair[1]);
+        }
+        return '';
+    }
+
+    // Theme: applies to this page and, once saved, to the watch app
+    var root = document.documentElement;
+    var themeBtn = document.getElementById('theme_btn');
+    function applyTheme(theme) {
+        root.setAttribute('data-theme', theme);
+        themeBtn.textContent = 'theme: ' + theme;
+        themeBtn.setAttribute('aria-pressed', theme === 'light' ? 'true' : 'false');
+    }
+    var fromLink = getQueryParam('theme');
+    applyTheme(fromLink === 'light' ? 'light' : 'dark');
+    themeBtn.addEventListener('click', function() {
+        applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+
+    /* ----- Editable lists ----- */
+    var contactsEl = document.getElementById('contacts');
+    var messagesEl = document.getElementById('messages');
+
+    function makeInput(placeholder, value, maxlength) {
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = placeholder;
+        input.value = value || '';
+        if (maxlength) input.maxLength = maxlength;
+        input.autocomplete = 'off';
+        input.setAttribute('autocapitalize', 'off');
+        input.spellcheck = false;
+        return input;
+    }
+
+    function makeRemove(row) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'small-btn remove';
+        btn.textContent = 'x';
+        btn.setAttribute('aria-label', 'Remove');
+        btn.addEventListener('click', function() { row.parentNode.removeChild(row); updateButtons(); });
+        return btn;
+    }
+
+    function addContact(name, to) {
+        var row = document.createElement('div');
+        row.className = 'row';
+        var pair = document.createElement('div');
+        pair.className = 'pair';
+        pair.appendChild(makeInput('Name on the watch', name, 20));
+        pair.appendChild(makeInput('Number or email', to, 80));
+        row.appendChild(pair);
+        row.appendChild(makeRemove(row));
+        contactsEl.appendChild(row);
+        updateButtons();
+    }
+
+    function addMessage(text) {
+        var row = document.createElement('div');
+        row.className = 'row';
+        var pair = document.createElement('div');
+        pair.className = 'pair';
+        pair.appendChild(makeInput('Message text', text, 300));
+        row.appendChild(pair);
+        row.appendChild(makeRemove(row));
+        messagesEl.appendChild(row);
+        updateButtons();
+    }
+
+    function updateButtons() {
+        document.getElementById('add_contact').disabled = contactsEl.children.length >= MAX_CONTACTS;
+        document.getElementById('add_message').disabled = messagesEl.children.length >= MAX_MESSAGES;
+    }
+
+    document.getElementById('add_contact').addEventListener('click', function() { addContact('', ''); });
+    document.getElementById('add_message').addEventListener('click', function() { addMessage(''); });
+
+    /* ----- Load the current settings ----- */
+    var current = JSON.parse(JSON.stringify(DEFAULTS));
+    try {
+        var passed = JSON.parse(getQueryParam('s') || 'null');
+        if (passed) {
+            if (typeof passed.trigger === 'string') current.trigger = passed.trigger;
+            if (typeof passed.notify_service === 'string') current.notify_service = passed.notify_service;
+            if (passed.contacts instanceof Array) current.contacts = passed.contacts;
+            if (passed.messages instanceof Array) current.messages = passed.messages;
+        }
+    } catch (e) { }
+
+    document.getElementById('ha_url').value = getQueryParam('url');
+    document.getElementById('ha_token').value = getQueryParam('token');
+    document.getElementById('notify_service').value = current.notify_service;
+    document.getElementById('trigger').value = current.trigger;
+    current.contacts.forEach(function(c) { addContact(c.name, c.to); });
+    current.messages.forEach(function(m) { addMessage(m); });
+    updateButtons();
+
+    /* ----- Save ----- */
+    function readPairs(container) {
+        var out = [];
+        var rows = container.querySelectorAll('.row');
+        for (var i = 0; i < rows.length; i++) {
+            var inputs = rows[i].querySelectorAll('input');
+            var values = [];
+            for (var j = 0; j < inputs.length; j++) values.push(inputs[j].value.trim());
+            out.push(values);
+        }
+        return out;
+    }
+
+    document.getElementById('save_btn').addEventListener('click', function() {
+        var contacts = readPairs(contactsEl).filter(function(v) { return v[0] && v[1]; })
+            .map(function(v) { return { name: v[0], to: v[1] }; });
+        var messages = readPairs(messagesEl).map(function(v) { return v[0]; }).filter(function(t) { return t; });
+
+        var config = {
+            ha_url: document.getElementById('ha_url').value.trim(),
+            ha_token: document.getElementById('ha_token').value.trim(),
+            notify_service: document.getElementById('notify_service').value.trim(),
+            trigger: document.getElementById('trigger').value.trim() || DEFAULTS.trigger,
+            theme: root.getAttribute('data-theme'),
+            contacts: contacts,
+            messages: messages
+        };
+        var return_to = getQueryParam('return_to') || 'pebblejs://close#';
+        document.location = return_to + encodeURIComponent(JSON.stringify(config));
+    });
+    </script>
+</body>
+</html>
