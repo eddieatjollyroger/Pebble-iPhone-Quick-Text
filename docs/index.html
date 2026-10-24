@@ -66,6 +66,7 @@
         ol { margin: 0; padding-left: 20px; }
         li { margin-bottom: 6px; }
         code { color: var(--fg); }
+        a { color: var(--fg); }
     </style>
 </head>
 <body>
@@ -78,6 +79,7 @@
 
         <details>
             <summary>iPhone setup (one time)</summary>
+            <p id="shortcut_link" hidden>Quick way: <a id="shortcut_a" href="#" target="_blank" rel="noopener">install the ready-made shortcut</a>, turn its automation on, and skip the steps below. If tapping it doesn't open Shortcuts, long-press the link and open it in Safari.</p>
             <ol>
                 <li>Update to iOS 27. Allow notifications for the Home Assistant app.</li>
                 <li>Open Shortcuts, then Automation, then add a new automation and choose <code>Notification</code>.</li>
@@ -129,6 +131,10 @@
     </div>
 
     <script>
+    // After you build the shortcut once and share it (Share > Copy iCloud Link), paste the link
+    // here and the page shows an install link. Leave it empty to show only the manual steps.
+    var SHORTCUT_URL = 'https://www.icloud.com/shortcuts/fda50438e31a40f4bfbf8605d8010589';
+
     var MAX_CONTACTS = 8, MAX_MESSAGES = 12;
     var DEFAULTS = { trigger: 'PEBBLE_TEXT', notify_service: '', contacts: [],
         messages: ['On my way', 'Running late', 'Call you back soon', 'OK', 'Thanks!'] };
@@ -155,6 +161,11 @@
     themeBtn.addEventListener('click', function() {
         applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
     });
+
+    if (SHORTCUT_URL) {
+        document.getElementById('shortcut_a').href = SHORTCUT_URL;
+        document.getElementById('shortcut_link').hidden = false;
+    }
 
     /* ----- Editable lists ----- */
     var contactsEl = document.getElementById('contacts');
