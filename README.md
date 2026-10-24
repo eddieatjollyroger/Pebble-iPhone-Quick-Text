@@ -1,5 +1,8 @@
 # iPhone setup (one time)
 
+## Import shortcut or add it manually as instructed below
+  Run this shortcut https://www.icloud.com/shortcuts/1aa2855cb00d4421b62acde19fc6eba9
+## Manual setup
   Update to iOS 27.</br></br>
   Allow notifications for the Home Assistant app.</br></br>
   Open Shortcuts, then Automation, then add a new automation and choose Notification.</br></br>
