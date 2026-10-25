@@ -39,6 +39,12 @@
             border: 1px solid var(--line); border-radius: 0; font-family: inherit;
             font-size: 16px; caret-color: var(--fg);
         }
+        select {
+            width: 100%; padding: 12px; background: var(--bg); color: var(--fg);
+            border: 1px solid var(--line); border-radius: 0; font-family: inherit; font-size: 16px;
+            appearance: none; -webkit-appearance: none;
+        }
+        select:focus { outline: 2px solid var(--fg); outline-offset: 2px; }
         input::placeholder { color: var(--dim); opacity: 0.7; }
         input:focus, button:focus-visible, summary:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 
@@ -82,13 +88,25 @@
             <p id="shortcut_link" hidden>Quick way: <a id="shortcut_a" href="#" target="_blank" rel="noopener">install the ready-made shortcut</a>, turn its automation on, and skip the steps below. If tapping it doesn't open Shortcuts, long-press the link and open it in Safari.</p>
             <ol>
                 <li>Update to iOS 27. Allow notifications for the Home Assistant app.</li>
-                <li>Open Shortcuts, then Automation, then add a new automation and choose <code>Notification</code>.</li>
-                <li>App: <b>Home Assistant</b>. Filter: title contains your trigger word (default <code>PEBBLE_TEXT</code>).</li>
-                <li>Set it to run immediately, not "Ask Before Running".</li>
-                <li>Add these actions: <code>Split Text</code> on the notification's message with the custom separator <code>||</code>; <code>Get Item from List</code> (first item) as the recipient; <code>Get Item from List</code> (last item) as the text; <code>Send Message</code> with that text to that recipient.</li>
+                <li>Open Shortcuts, then Automation, add a new automation and choose <code>Notification</code>. App: <b>Home Assistant</b>. Filter: title contains your trigger word (default <code>PEBBLE_TEXT</code>). Set it to run immediately.</li>
+                <li>Add <code>Split Text</code> on the notification's message, with the custom separator <code>||</code>. Then three <code>Get Item from List</code> actions: item 1 is the <b>app</b>, item 2 is the <b>recipient</b>, item 3 is the <b>text</b>.</li>
+                <li>Add an <code>If</code> action: if the app is <code>whatsapp</code>, add WhatsApp's <code>Send Message</code> with the text to the recipient. Under <code>Otherwise</code>, add a second <code>If</code> for <code>telegram</code> with Telegram's <code>Send Message</code>. Under that one's <code>Otherwise</code>, add the Messages <code>Send Message</code>.</li>
+                <li>Only add the apps you use. Anything else goes through Messages.</li>
                 <li>Send yourself a test from the watch.</li>
             </ol>
-            <p class="note">Contacts below are phone numbers or Apple ID emails. If it doesn't fire, the Home Assistant app's notifications may need to be set to show on the Lock Screen or Notification Center.</p>
+            <p class="note">If an app's Send Message action won't take a number as the recipient, use the contact's name as saved in your iPhone's Contacts. Contacts below choose which app they go through.</p>
+        </details>
+
+        <details>
+            <summary>Reply to the last message (optional)</summary>
+            <p class="note">Adds a "reply" row at the top of the contact list with the last text your iPhone received. Works for any app the automation below can see, and the reply goes back through the contact's app.</p>
+            <ol>
+                <li>In Home Assistant, go to Settings, Devices &amp; services, Helpers, and create two <b>Text</b> helpers named <code>pebble_last_from</code> and <code>pebble_last_text</code>. Set the maximum length of both to 255.</li>
+                <li>On the iPhone, add one more <code>Notification</code> automation in Shortcuts, set to run immediately. Choose Messages, and WhatsApp and Telegram too if it lets you pick several apps. Leave the title filter empty.</li>
+                <li>Add two <code>Call Service</code> actions from the Home Assistant app. Service <code>input_text.set_value</code>, with <code>entity_id</code> = <code>input_text.pebble_last_from</code> and <code>value</code> = the notification's title (the sender). Then the same for <code>input_text.pebble_last_text</code> with <code>value</code> = the notification's message.</li>
+                <li>Open the app on the watch after a message arrives. The reply row shows the sender. If the sender's name matches a contact, the reply goes through that contact's app; anyone else goes through Messages.</li>
+            </ol>
+            <p class="note">Messages older than three hours are ignored. Notifications must be allowed to show previews for the automation to read them.</p>
         </details>
 
         <div class="card">
@@ -133,7 +151,7 @@
     <script>
     // After you build the shortcut once and share it (Share > Copy iCloud Link), paste the link
     // here and the page shows an install link. Leave it empty to show only the manual steps.
-    var SHORTCUT_URL = 'https://www.icloud.com/shortcuts/1aa2855cb00d4421b62acde19fc6eba9';
+    var SHORTCUT_URL = 'https://www.icloud.com/shortcuts/bd19019334894291909a6f9dc6605aff';
 
     var MAX_CONTACTS = 8, MAX_MESSAGES = 12;
     var DEFAULTS = { trigger: 'PEBBLE_TEXT', notify_service: '', contacts: [],
@@ -193,13 +211,27 @@
         return btn;
     }
 
-    function addContact(name, to) {
+    function makeSelect(value) {
+        var select = document.createElement('select');
+        select.setAttribute('aria-label', 'Send through');
+        [['messages', 'Send through Messages'], ['whatsapp', 'Send through WhatsApp'], ['telegram', 'Send through Telegram']].forEach(function(o) {
+            var opt = document.createElement('option');
+            opt.value = o[0];
+            opt.textContent = o[1];
+            select.appendChild(opt);
+        });
+        select.value = value || 'messages';
+        return select;
+    }
+
+    function addContact(name, to, via) {
         var row = document.createElement('div');
         row.className = 'row';
         var pair = document.createElement('div');
         pair.className = 'pair';
         pair.appendChild(makeInput('Name on the watch', name, 20));
-        pair.appendChild(makeInput('Number or email', to, 80));
+        pair.appendChild(makeInput('Number, email or name', to, 80));
+        pair.appendChild(makeSelect(via));
         row.appendChild(pair);
         row.appendChild(makeRemove(row));
         contactsEl.appendChild(row);
@@ -223,7 +255,7 @@
         document.getElementById('add_message').disabled = messagesEl.children.length >= MAX_MESSAGES;
     }
 
-    document.getElementById('add_contact').addEventListener('click', function() { addContact('', ''); });
+    document.getElementById('add_contact').addEventListener('click', function() { addContact('', '', 'messages'); });
     document.getElementById('add_message').addEventListener('click', function() { addMessage(''); });
 
     /* ----- Load the current settings ----- */
@@ -242,7 +274,7 @@
     document.getElementById('ha_token').value = getQueryParam('token');
     document.getElementById('notify_service').value = current.notify_service;
     document.getElementById('trigger').value = current.trigger;
-    current.contacts.forEach(function(c) { addContact(c.name, c.to); });
+    current.contacts.forEach(function(c) { addContact(c.name, c.to, c.via); });
     current.messages.forEach(function(m) { addMessage(m); });
     updateButtons();
 
@@ -260,8 +292,13 @@
     }
 
     document.getElementById('save_btn').addEventListener('click', function() {
-        var contacts = readPairs(contactsEl).filter(function(v) { return v[0] && v[1]; })
-            .map(function(v) { return { name: v[0], to: v[1] }; });
+        var contactRows = contactsEl.querySelectorAll('.row');
+        var contacts = [];
+        for (var i = 0; i < contactRows.length; i++) {
+            var inputs = contactRows[i].querySelectorAll('input');
+            var name = inputs[0].value.trim(), to = inputs[1].value.trim();
+            if (name && to) contacts.push({ name: name, to: to, via: contactRows[i].querySelector('select').value });
+        }
         var messages = readPairs(messagesEl).map(function(v) { return v[0]; }).filter(function(t) { return t; });
 
         var config = {
