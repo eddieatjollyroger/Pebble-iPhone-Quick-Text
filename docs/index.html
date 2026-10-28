@@ -108,7 +108,7 @@
                 <li>Add two <code>Call Service</code> actions from the Home Assistant app. Service <code>input_text.set_value</code>, with <code>entity_id</code> = <code>input_text.pebble_last_from</code> and <code>value</code> = that text. Then the same for <code>input_text.pebble_last_text</code> with <code>value</code> = the notification's message.</li>
                 <li>Open the app on the watch after a message arrives. The reply row shows the sender, and the reply goes back through the app the message came in on.</li>
             </ol>
-            <p class="note">If the automation can't pick several apps, or doesn't expose the app's name, make one automation per app and type the app name (<code>messages</code> or <code>whatsapp</code>) in place of the app variable. Messages older than three hours are ignored. Notifications must be allowed to show previews for the automation to read them.</p>
+            <p class="note">Messages older than three hours are ignored. Notifications must be allowed to show previews for the automation to read them.</p>
         </details>
 
         <div class="card">
