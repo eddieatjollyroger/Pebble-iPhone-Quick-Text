@@ -42,10 +42,11 @@
 enum {
   KEY_CMD = 0, KEY_CONTACT = 1, KEY_MSG = 2, KEY_TEXT = 3,
   KEY_LIST_KIND = 4, KEY_LIST_INDEX = 5, KEY_LIST_COUNT = 6, KEY_LIST_TEXT = 7,
-  KEY_STATUS = 8, KEY_STATUS_OK = 9, KEY_THEME = 10
+  KEY_STATUS = 8, KEY_STATUS_OK = 9, KEY_THEME = 10, KEY_REPLY_TEXT = 11,
+  KEY_NEW_REPLY = 12, KEY_REPLY_ID = 13
 };
-enum { CMD_SEND = 1 };
-enum { LIST_CONTACTS = 0, LIST_MESSAGES = 1 };
+enum { CMD_SEND = 1, CMD_REFRESH = 2 };
+enum { LIST_CONTACTS = 0, LIST_MESSAGES = 1, LIST_REPLY = 2 };
 
 // Dark: green on black. Light: black on white.
 static GColor s_col_bg, s_col_fg, s_col_dim, s_col_warn;
@@ -59,7 +60,24 @@ static char s_contacts[MAX_CONTACTS][CONTACT_LEN];
 static char s_messages[MAX_MESSAGES][MESSAGE_LEN];
 static int s_contact_count = 0;
 static int s_message_count = 0;
-static int s_selected_contact = -1;
+static int s_selected_contact = -1;     // -1 means the reply target below
+
+// The last text your iPhone received, if the phone has told us about one
+static bool s_has_reply = false;
+static char s_reply_name[CONTACT_LEN] = "";
+static char s_reply_text[MESSAGE_LEN] = "";
+static int32_t s_reply_id = 0;                 // changes whenever a different message arrives
+
+// The reply the user actually picked. Kept apart from the live one above, so a new message
+// arriving while they choose what to say can't send their answer to the wrong person.
+static int32_t s_picked_reply_id = 0;
+static char s_picked_reply_name[CONTACT_LEN] = "";
+
+// While the phone is fetching the reply, the contact list header shows a spinner
+static bool s_reply_loading = false;
+static int s_spin_frame = 0;
+static AppTimer *s_spin_timer = NULL;
+static AppTimer *s_loading_timeout = NULL;
 
 static Window *s_contacts_window;
 static MenuLayer *s_contacts_menu;
@@ -97,6 +115,19 @@ static GRect safe_bounds(GRect full) {
 #else
   return full;
 #endif
+}
+
+// Text that was cut off in the middle of a multi-byte character (an accented letter, a symbol)
+// can upset text drawing. This drops a broken last character, if there is one.
+static void utf8_trim(char *s) {
+  size_t n = strlen(s);
+  size_t i = n;
+  while (i > 0 && ((unsigned char)s[i - 1] & 0xC0) == 0x80) i--;     // step back over continuation bytes
+  if (i == 0) return;
+  unsigned char lead = (unsigned char)s[i - 1];
+  size_t have = n - (i - 1);                                          // bytes of the last character we have
+  size_t need = lead >= 0xF0 ? 4 : (lead >= 0xE0 ? 3 : (lead >= 0xC0 ? 2 : 1));
+  if (have < need) s[i - 1] = '\0';
 }
 
 static void draw_text(GContext *ctx, const char *text, GFont font, GRect rect, GTextAlignment align, GColor color) {
@@ -163,12 +194,16 @@ static void draw_marquee(GContext *ctx, const char *text, GFont font, GRect area
 
 /* ---------- Terminal-style menu drawing ---------- */
 
-static void draw_menu_header(GContext *ctx, const Layer *cell_layer, const char *text) {
+static void draw_menu_header(GContext *ctx, const Layer *cell_layer, const char *text, const char *right) {
   GRect b = layer_get_bounds(cell_layer);
+  GFont fsb = fonts_get_system_font(FONT_SB);
+  int right_w = right ? 3 * LH_S : 0;
   graphics_context_set_fill_color(ctx, C_BG);
   graphics_fill_rect(ctx, b, 0, GCornerNone);
-  draw_text(ctx, text, fonts_get_system_font(FONT_SB), GRect(PAD, 0, b.size.w - 2 * PAD, b.size.h - 2),
-            GTextAlignmentLeft, C_DIM);
+  draw_text(ctx, text, fsb, GRect(PAD, 0, b.size.w - 2 * PAD - right_w, b.size.h - 2), GTextAlignmentLeft, C_DIM);
+  if (right) {
+    draw_text(ctx, right, fsb, GRect(b.size.w - PAD - right_w, 0, right_w, b.size.h - 2), GTextAlignmentRight, C_BRIGHT);
+  }
   graphics_context_set_stroke_color(ctx, C_DIM);
   for (int x = PAD; x < b.size.w - PAD; x += 4) {
     graphics_draw_line(ctx, GPoint(x, b.size.h - 2), GPoint(x + 1, b.size.h - 2));
@@ -230,8 +265,48 @@ static void menu_wrap_move(MenuLayer *layer, bool up, uint16_t rows) {
 
 static void show_status_window(void);
 
+static void spin_timer_cb(void *data) {
+  s_spin_timer = NULL;
+  if (!s_reply_loading) return;
+  s_spin_frame++;
+  if (s_contacts_menu) layer_mark_dirty(menu_layer_get_layer(s_contacts_menu));
+  s_spin_timer = app_timer_register(150, spin_timer_cb, NULL);
+}
+
+static void stop_loading(void) {
+  s_reply_loading = false;
+  if (s_loading_timeout) { app_timer_cancel(s_loading_timeout); s_loading_timeout = NULL; }
+  if (s_contacts_menu) layer_mark_dirty(menu_layer_get_layer(s_contacts_menu));
+}
+
+// If the phone never answers (for example its app isn't running), stop spinning after a while
+static void loading_timeout_cb(void *data) {
+  s_loading_timeout = NULL;
+  stop_loading();
+}
+
+static void start_loading(void) {
+  s_reply_loading = true;
+  if (!s_spin_timer) s_spin_timer = app_timer_register(150, spin_timer_cb, NULL);
+  if (s_loading_timeout) app_timer_cancel(s_loading_timeout);
+  s_loading_timeout = app_timer_register(15000, loading_timeout_cb, NULL);
+}
+
+// Ask the phone for the latest received message (so "reply" can show up).
+// The spinner only starts if the request really went out, since the phone answers every one.
+static void request_reply(void) {
+  DictionaryIterator *iter;
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK || !iter) return;
+  dict_write_uint8(iter, KEY_CMD, CMD_REFRESH);
+  dict_write_int8(iter, KEY_CONTACT, (int8_t)s_contact_count);   // lets the phone notice if we lost our lists
+  dict_write_int8(iter, KEY_MSG, (int8_t)s_message_count);
+  app_message_outbox_send();
+  start_loading();
+}
+
 static void set_status(const char *text, bool ok) {
   snprintf(s_status, sizeof(s_status), "%s", text);
+  utf8_trim(s_status);
   s_status_ok = ok;
   if (s_status_layer) layer_mark_dirty(s_status_layer);
 }
@@ -246,6 +321,7 @@ static void send_to_phone(int msg_index, const char *text) {
   }
   dict_write_uint8(iter, KEY_CMD, CMD_SEND);
   dict_write_int8(iter, KEY_CONTACT, (int8_t)s_selected_contact);
+  if (s_selected_contact == -1) dict_write_int32(iter, KEY_REPLY_ID, s_picked_reply_id);
   if (text) dict_write_cstring(iter, KEY_TEXT, text);
   else dict_write_int8(iter, KEY_MSG, (int8_t)msg_index);
   app_message_outbox_send();
@@ -331,9 +407,11 @@ static int16_t messages_header_height(MenuLayer *l, uint16_t section, void *ctx)
 
 static void messages_draw_header(GContext *ctx, const Layer *cell_layer, uint16_t section, void *context) {
   char buf[48];
-  snprintf(buf, sizeof(buf), "$ to %s_",
-           (s_selected_contact >= 0 && s_selected_contact < s_contact_count) ? s_contacts[s_selected_contact] : "?");
-  draw_menu_header(ctx, cell_layer, buf);
+  const char *who = "?";
+  if (s_selected_contact == -1) who = s_picked_reply_name;
+  else if (s_selected_contact >= 0 && s_selected_contact < s_contact_count) who = s_contacts[s_selected_contact];
+  snprintf(buf, sizeof(buf), "$ to %s_", who);
+  draw_menu_header(ctx, cell_layer, buf, NULL);
 }
 
 static int16_t messages_cell_height(MenuLayer *l, MenuIndex *idx, void *ctx) {
@@ -413,29 +491,50 @@ static void open_messages(void) {
 
 /* ---------- Contacts menu (first level) ---------- */
 
-static uint16_t contacts_row_count(void) { return s_contact_count == 0 ? 1 : s_contact_count; }
+static int reply_rows(void) { return s_has_reply ? 1 : 0; }
+
+static uint16_t contacts_row_count(void) {
+  int n = reply_rows() + s_contact_count;
+  return n == 0 ? 1 : n;
+}
 static uint16_t contacts_get_num_rows(MenuLayer *l, uint16_t section, void *ctx) { return contacts_row_count(); }
 static int16_t contacts_header_height(MenuLayer *l, uint16_t section, void *ctx) { return MENU_HEADER_H; }
 
 static void contacts_draw_header(GContext *ctx, const Layer *cell_layer, uint16_t section, void *context) {
-  draw_menu_header(ctx, cell_layer, "$ send_to_");
+  // A small terminal-style spinner while the reply is being fetched
+  static const char *frames[] = { "[|]", "[/]", "[-]", "[\\]" };
+  draw_menu_header(ctx, cell_layer, "$ send_to_", s_reply_loading ? frames[s_spin_frame % 4] : NULL);
 }
 
 static int16_t contacts_cell_height(MenuLayer *l, MenuIndex *idx, void *ctx) {
-  return s_contact_count == 0 ? ROW_H_TALL : ROW_H_SHORT;
+  if (s_has_reply && idx->row == 0) return ROW_H_TALL;          // reply row shows the message too
+  return (reply_rows() + s_contact_count == 0) ? ROW_H_TALL : ROW_H_SHORT;
 }
 
 static void contacts_draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *idx, void *context) {
-  if (s_contact_count == 0) {
+  if (s_has_reply && idx->row == 0) {
+    char title[48];
+    snprintf(title, sizeof(title), "reply: %s", s_reply_name);
+    draw_menu_row(ctx, cell_layer, title, s_reply_text);
+    return;
+  }
+  if (reply_rows() + s_contact_count == 0) {
     draw_menu_row(ctx, cell_layer, "no contacts", "add them in the phone settings");
     return;
   }
-  draw_menu_row(ctx, cell_layer, s_contacts[idx->row], NULL);
+  draw_menu_row(ctx, cell_layer, s_contacts[idx->row - reply_rows()], NULL);
 }
 
 static void contacts_select(MenuLayer *layer, MenuIndex *idx) {
+  if (s_has_reply && idx->row == 0) {
+    s_selected_contact = -1;
+    s_picked_reply_id = s_reply_id;                                   // freeze who we're answering
+    snprintf(s_picked_reply_name, CONTACT_LEN, "%s", s_reply_name);
+    open_messages();
+    return;
+  }
   if (s_contact_count == 0) return;
-  s_selected_contact = idx->row;
+  s_selected_contact = idx->row - reply_rows();
   open_messages();
 }
 
@@ -452,6 +551,19 @@ static void contacts_click_config(void *context) {
   window_single_repeating_click_subscribe(BUTTON_ID_DOWN, 120, contacts_down);
   window_single_click_subscribe(BUTTON_ID_SELECT, contacts_select_click);
   // Back is left alone, so it exits right away
+}
+
+static bool s_first_appear = true;
+
+static void contacts_window_appear(Window *window) {
+  request_reply();
+  if (s_first_appear) {
+    // Right after the app opens, our request can't reach the phone yet (its script is still
+    // starting), but the phone sends the reply by itself once it's up. Show the spinner for
+    // that wait, even though the request above didn't go out.
+    s_first_appear = false;
+    start_loading();
+  }
 }
 
 static void contacts_window_load(Window *window) {
@@ -494,10 +606,12 @@ static void load_lists(void) {
   for (int i = 0; i < s_contact_count; i++) {
     s_contacts[i][0] = '\0';
     persist_read_string(P_CONTACT_BASE + i, s_contacts[i], CONTACT_LEN);
+    utf8_trim(s_contacts[i]);
   }
   for (int i = 0; i < s_message_count; i++) {
     s_messages[i][0] = '\0';
     persist_read_string(P_MESSAGE_BASE + i, s_messages[i], MESSAGE_LEN);
+    utf8_trim(s_messages[i]);
   }
 }
 
@@ -510,7 +624,25 @@ static void in_received_handler(DictionaryIterator *iter, void *context) {
 
   // A contact or message list: a count message first, then one message per item
   Tuple *kind = dict_find(iter, KEY_LIST_KIND);
-  if (kind) {
+  if (kind && kind->value->int32 == LIST_REPLY) {
+    stop_loading();
+    Tuple *count = dict_find(iter, KEY_LIST_COUNT);
+    Tuple *name = dict_find(iter, KEY_LIST_TEXT);
+    Tuple *body = dict_find(iter, KEY_REPLY_TEXT);
+    s_has_reply = count && count->value->int32 > 0 && name;
+    if (s_has_reply) {
+      snprintf(s_reply_name, CONTACT_LEN, "%s", name->value->cstring);
+      utf8_trim(s_reply_name);
+      snprintf(s_reply_text, MESSAGE_LEN, "%s", body ? body->value->cstring : "");
+      utf8_trim(s_reply_text);
+      Tuple *id = dict_find(iter, KEY_REPLY_ID);
+      if (id) s_reply_id = id->value->int32;
+      // A brand new message came in while the app is open: a short buzz
+      Tuple *fresh = dict_find(iter, KEY_NEW_REPLY);
+      if (fresh && fresh->value->int32) vibes_short_pulse();
+    }
+    if (s_contacts_menu) menu_layer_reload_data(s_contacts_menu);
+  } else if (kind) {
     bool contacts = kind->value->int32 == LIST_CONTACTS;
     Tuple *count = dict_find(iter, KEY_LIST_COUNT);
     Tuple *index = dict_find(iter, KEY_LIST_INDEX);
@@ -530,9 +662,11 @@ static void in_received_handler(DictionaryIterator *iter, void *context) {
       int i = index->value->int32;
       if (contacts && i >= 0 && i < MAX_CONTACTS) {
         snprintf(s_contacts[i], CONTACT_LEN, "%s", text->value->cstring);
+        utf8_trim(s_contacts[i]);
         persist_write_string(P_CONTACT_BASE + i, s_contacts[i]);
       } else if (!contacts && i >= 0 && i < MAX_MESSAGES) {
         snprintf(s_messages[i], MESSAGE_LEN, "%s", text->value->cstring);
+        utf8_trim(s_messages[i]);
         persist_write_string(P_MESSAGE_BASE + i, s_messages[i]);
       }
     }
@@ -567,13 +701,13 @@ static void init(void) {
   s_contacts_window = window_create();
   window_set_background_color(s_contacts_window, C_BG);
   window_set_window_handlers(s_contacts_window, (WindowHandlers) {
-    .load = contacts_window_load, .unload = contacts_window_unload
+    .load = contacts_window_load, .appear = contacts_window_appear, .unload = contacts_window_unload
   });
-  window_stack_push(s_contacts_window, true);
-  scroll_timer_start();
-
   app_message_register_inbox_received(in_received_handler);
   app_message_open(256, 160);
+
+  window_stack_push(s_contacts_window, true);
+  scroll_timer_start();
 
 #if HAS_DICTATION
   s_dictation = dictation_session_create(sizeof(s_dictation_buf), dictation_cb, NULL);
