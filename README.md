@@ -6,6 +6,12 @@ message (or dictate one), and your iPhone sends it. No email accounts, no cloud 
 When a message arrives, a "reply" row appears at the top of the contact list with who it's
 from and what they said, so you can answer in two presses.
 
+<img width="200" height="228" alt="pebbletext10" src="https://github.com/user-attachments/assets/06b73098-b0e8-4f09-93b5-a3099c6873e5" />
+<img width="200" height="228" alt="pebbletext11" src="https://github.com/user-attachments/assets/ac416a19-68f7-4cab-850d-c2e6fd27e7d9" />
+<img width="200" height="228" alt="pebbletext20" src="https://github.com/user-attachments/assets/374660c5-e642-4fcd-8a19-60b0345fe4ea" />
+<img width="200" height="228" alt="pebbletext21" src="https://github.com/user-attachments/assets/61d251d8-bc0a-4ea9-8bdb-fcf23270ae23" />
+
+
 ## How it works
 
 1. You choose a contact and a message on the watch.
